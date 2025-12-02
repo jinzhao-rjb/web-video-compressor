@@ -208,8 +208,24 @@ async function compressVideo(file, quality, resolutionScale) {
                 const frameRate = video.videoFrameRate || 30;
                 const frameInterval = 1 / frameRate;
                 
-                // 获取媒体流
-                const stream = canvas.captureStream(frameRate);
+                // 获取媒体流（仅视频）
+                const videoStream = canvas.captureStream(frameRate);
+                
+                // 播放视频以获取音频流
+                await video.play();
+                // 获取原始视频的音频流
+                const audioStream = video.captureStream().getAudioTracks()[0];
+                
+                // 创建新的媒体流，包含视频和音频
+                const stream = new MediaStream();
+                // 添加视频轨道
+                videoStream.getVideoTracks().forEach(track => {
+                    stream.addTrack(track);
+                });
+                // 添加音频轨道（如果有）
+                if (audioStream) {
+                    stream.addTrack(audioStream);
+                }
                 
                 // 设置视频质量和编码格式，优先选择H.264（更适合移动端）
                 let mimeType = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2'; // H.264 + AAC
