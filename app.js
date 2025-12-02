@@ -202,17 +202,28 @@ async function compressVideo(file, quality, resolutionScale) {
                 const canvas = document.createElement('canvas');
                 canvas.width = evenWidth;
                 canvas.height = evenHeight;
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                
+                // 移动端优化：降低帧速率到24fps或15fps
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                const frameRate = isMobile ? 15 : 24;
+                const frameInterval = 1 / frameRate;
                 
                 // 获取媒体流
-                const stream = canvas.captureStream(30); // 30fps
+                const stream = canvas.captureStream(frameRate);
                 
-                // 设置视频质量
-                const mimeType = 'video/webm;codecs=vp9';
-                const isSupported = MediaRecorder.isTypeSupported(mimeType);
+                // 设置视频质量和编码格式，优先选择H.264（更适合移动端）
+                let mimeType = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2'; // H.264 + AAC
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm;codecs=vp9'; // 备选VP9
+                    if (!MediaRecorder.isTypeSupported(mimeType)) {
+                        mimeType = MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : 'video/mp4';
+                    }
+                }
+                
                 const recorder = new MediaRecorder(stream, {
-                    mimeType: isSupported ? mimeType : 'video/webm',
-                    videoBitsPerSecond: calculateBitrate(quality, evenWidth, evenHeight)
+                    mimeType: mimeType,
+                    videoBitsPerSecond: calculateBitrate(quality, evenWidth, evenHeight, frameRate)
                 });
                 
                 // 存储录制的视频数据
@@ -239,6 +250,7 @@ async function compressVideo(file, quality, resolutionScale) {
                 let currentTime = 0;
                 const duration = video.duration;
                 
+                // 优化绘制性能：使用requestAnimationFrame但控制实际绘制的帧
                 const drawFrame = () => {
                     if (currentTime >= duration) {
                         // 停止录制和播放
@@ -259,7 +271,7 @@ async function compressVideo(file, quality, resolutionScale) {
                     progressText.textContent = `${progress}%`;
                     
                     // 继续下一帧
-                    currentTime += 0.033; // 大约30fps
+                    currentTime += frameInterval;
                     requestAnimationFrame(drawFrame);
                 };
                 
@@ -278,9 +290,9 @@ async function compressVideo(file, quality, resolutionScale) {
 }
 
 // 计算视频码率
-function calculateBitrate(quality, width, height) {
-    // 基础码率计算：分辨率 × 帧率 × 质量系数
-    const baseBitrate = width * height * 30 * 0.07;
+function calculateBitrate(quality, width, height, frameRate = 30) {
+    // 基础码率计算：分辨率 × 实际帧速率 × 质量系数
+    const baseBitrate = width * height * frameRate * 0.07;
     // 根据质量滑块调整码率（0-100%）
     const qualityFactor = quality / 100;
     return Math.round(baseBitrate * qualityFactor);

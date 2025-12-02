@@ -3,48 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>视频压缩工具测试</title>
+    <title>视频压缩测试</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f0f0f0;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
         }
-        h1 {
-            color: #333;
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
         }
-        .test-result {
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 5px;
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
         }
-        .pass {
-            background-color: #d4edda;
-            border: 1px solid #c3e6cb;
-            color: #155724;
+        button:hover {
+            background-color: #45a049;
         }
-        .fail {
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-        }
-        .test-summary {
+        #result {
             margin-top: 20px;
-            padding: 15px;
-            background-color: #e9ecef;
-            border-radius: 5px;
-            font-weight: bold;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
         }
     </style>
 </head>
 <body>
-    <h1>视频压缩工具测试</h1>
-    <div id="test-results"></div>
-    <div class="test-summary" id="test-summary"></div>
-
-    <!-- 引入应用脚本 -->
+    <h1>视频压缩测试</h1>
+    
+    <div class="test-section">
+        <h2>性能测试</h2>
+        <input type="file" id="testFile" accept="video/*">
+        <button onclick="testCompression()">测试压缩</button>
+        <div id="result"></div>
+    </div>
+    
     <script src="app.js"></script>
-    <!-- 引入测试脚本 -->
-    <script src="test.js"></script>
+    <script>
+        async function testCompression() {
+            const file = document.getElementById('testFile').files[0];
+            if (!file) {
+                alert('请选择一个视频文件');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>开始压缩测试...</p>';
+            
+            const startTime = performance.now();
+            
+            try {
+                // 使用默认参数测试压缩
+                const blob = await compressVideo(file, 80, 1);
+                const endTime = performance.now();
+                
+                const duration = (endTime - startTime) / 1000;
+                const originalSize = file.size / (1024 * 1024);
+                const compressedSize = blob.size / (1024 * 1024);
+                const ratio = (compressedSize / originalSize * 100).toFixed(2);
+                
+                resultDiv.innerHTML = `
+                    <h3>测试结果</h3>
+                    <p>压缩耗时: ${duration.toFixed(2)} 秒</p>
+                    <p>原始大小: ${originalSize.toFixed(2)} MB</p>
+                    <p>压缩后大小: ${compressedSize.toFixed(2)} MB</p>
+                    <p>压缩率: ${ratio}%</p>
+                    <button onclick="downloadResult('${blob.name}', '${URL.createObjectURL(blob)}')">下载测试结果</button>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">测试失败: ${error.message}</p>`;
+            }
+        }
+        
+        function downloadResult(filename, url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    </script>
 </body>
 </html>
