@@ -269,34 +269,59 @@ async function compressVideo(file, quality, resolutionScale) {
                 // 设置视频播放速率为1，确保正常播放
                 video.playbackRate = 1;
                 
-                // 使用ontimeupdate事件在视频实际播放时绘制每一帧
-                // 这样可以确保视频的流畅性和同步性
-                let lastTime = -1;
-                video.ontimeupdate = () => {
-                    const currentTime = video.currentTime;
+                // 使用requestAnimationFrame精确控制每一帧的绘制
+                // 确保压缩后的视频时长与原始视频完全一致
+                let startTime = Date.now();
+                let frameCount = 0;
+                let isStopped = false;
+                
+                // 精确计算每一帧的时间
+                const totalFrames = Math.ceil(duration * frameRate);
+                
+                const drawFrame = () => {
+                    if (isStopped) return;
                     
-                    // 避免同一帧被绘制多次
-                    if (Math.floor(currentTime / frameInterval) !== Math.floor(lastTime / frameInterval)) {
-                        // 绘制到canvas
-                        ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
-                        lastTime = currentTime;
-                    }
+                    // 计算当前应该显示的时间
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    const currentTime = Math.min(elapsed, duration);
+                    
+                    // 设置视频当前时间
+                    video.currentTime = currentTime;
+                    
+                    // 绘制当前帧到canvas
+                    ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
                     
                     // 更新进度
                     const progress = Math.min(100, Math.round((currentTime / duration) * 100));
                     progressFill.style.width = `${progress}%`;
                     progressText.textContent = `${progress}%`;
                     
-                    // 当视频播放完成时停止录制
-                    if (currentTime >= duration) {
+                    // 检查是否需要停止录制
+                    if (currentTime >= duration || frameCount >= totalFrames) {
+                        isStopped = true;
                         recorder.stop();
                         video.pause();
-                        video.ontimeupdate = null; // 移除事件监听
+                        return;
+                    }
+                    
+                    // 继续下一帧
+                    frameCount++;
+                    requestAnimationFrame(drawFrame);
+                };
+                
+                // 等待视频准备好后开始绘制
+                video.onseeked = () => {
+                    // 只执行一次，避免重复调用
+                    if (!isStopped) {
+                        requestAnimationFrame(drawFrame);
                     }
                 };
                 
                 // 开始播放视频
                 video.play();
+                
+                // 立即开始绘制第一帧
+                requestAnimationFrame(drawFrame);
                 
             } catch (error) {
                 reject(error);
