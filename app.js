@@ -189,6 +189,9 @@ async function compressVideo(file, quality, resolutionScale) {
         video.muted = true; // 静音播放，避免影响用户体验
         video.preload = 'auto'; // 预加载更多数据，确保流畅播放
         
+        // 移动端优化：添加crossOrigin属性确保视频可以正确处理
+        video.crossOrigin = 'anonymous';
+        
         video.onloadedmetadata = async () => {
             try {
                 // 计算新的分辨率
@@ -203,41 +206,26 @@ async function compressVideo(file, quality, resolutionScale) {
                 const canvas = document.createElement('canvas');
                 canvas.width = evenWidth;
                 canvas.height = evenHeight;
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                const ctx = canvas.getContext('2d');
                 
                 // 使用视频原始帧率，确保视频正常播放
                 const frameRate = video.videoFrameRate || 30;
-                const frameInterval = 1000 / frameRate; // 每帧间隔（毫秒）
                 
-                // 创建新的媒体流，包含视频和音频
-                const stream = new MediaStream();
-                
-                // 获取原始视频的媒体流（包含音频和视频）
-                await video.play();
-                const originalStream = video.captureStream(frameRate); // 确保正确的捕获帧率
-                
-                // 获取原始视频的音频流
-                const audioTracks = originalStream.getAudioTracks();
-                // 添加所有音频轨道
-                audioTracks.forEach(track => {
-                    stream.addTrack(track);
-                });
-                
-                // 获取canvas的视频流
-                const videoStream = canvas.captureStream(frameRate); // 设置canvas捕获帧率
-                // 添加视频轨道
-                videoStream.getVideoTracks().forEach(track => {
-                    stream.addTrack(track);
-                });
-                
-                // 记录音频轨道数量，用于调试
-                console.log(`检测到 ${audioTracks.length} 个音频轨道`);
+                // 移动端优化：根据设备性能调整帧率
+                if (navigator.userAgent.match(/mobile/i)) {
+                    // 移动端降低帧率，减少性能消耗
+                    frameRate = Math.min(frameRate, 24);
+                }
                 
                 // 设置视频质量和编码格式，优先选择H.264（更适合移动端）
                 let mimeType = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2'; // H.264 + AAC
+                
+                // 移动端优化：简化编码格式检测，确保兼容性
                 if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/webm;codecs=vp9,opus'; // 备选VP9 + Opus
+                    // 回退到基础MP4格式，提高移动端兼容性
+                    mimeType = 'video/mp4';
                     if (!MediaRecorder.isTypeSupported(mimeType)) {
+                        // 最后回退到webm
                         mimeType = MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : 'video/mp4';
                     }
                 }
@@ -247,25 +235,41 @@ async function compressVideo(file, quality, resolutionScale) {
                 const audioBitrate = 128000; // 固定音频码率为128kbps，确保音频质量
                 const totalBitrate = videoBitrate + audioBitrate;
                 
-                // 关键改进：设置更详细的录制参数，确保生成的视频包含完整元数据
+                // 关键改进：简化录制参数，提高移动端兼容性
                 const recorderOptions = {
                     mimeType: mimeType,
                     videoBitsPerSecond: videoBitrate,
-                    audioBitsPerSecond: audioBitrate,
-                    bitsPerSecond: totalBitrate, // 总码率
-                    frameRate: frameRate, // 明确设置帧率
-                    ignoreMutedMedia: false, // 不忽略静音媒体
-                    videoEncodingBitrate: videoBitrate, // 视频编码码率
-                    audioEncodingBitrate: audioBitrate // 音频编码码率
+                    audioBitsPerSecond: audioBitrate
                 };
                 
-                // 添加浏览器特定的配置
-                if (mimeType.includes('webm')) {
-                    // WebM格式特定配置
-                    recorderOptions.bitsPerSecond = totalBitrate;
-                } else if (mimeType.includes('mp4')) {
-                    // MP4格式特定配置
-                    recorderOptions.videoBitsPerSecond = videoBitrate;
+                // 移动端优化：简化媒体流处理，避免复杂的音视频轨道混合
+                let stream;
+                try {
+                    // 尝试获取原始视频的媒体流（包含音频和视频）
+                    await video.play();
+                    const originalStream = video.captureStream(frameRate);
+                    
+                    // 获取canvas的视频流
+                    const canvasStream = canvas.captureStream(frameRate);
+                    
+                    // 创建新的媒体流，包含视频和音频
+                    stream = new MediaStream();
+                    
+                    // 添加音频轨道
+                    const audioTracks = originalStream.getAudioTracks();
+                    audioTracks.forEach(track => {
+                        stream.addTrack(track);
+                    });
+                    
+                    // 添加视频轨道
+                    const videoTracks = canvasStream.getVideoTracks();
+                    videoTracks.forEach(track => {
+                        stream.addTrack(track);
+                    });
+                } catch (audioError) {
+                    console.warn('音频处理失败，将仅处理视频:', audioError);
+                    // 移动端优化：如果音频处理失败，只处理视频
+                    stream = canvas.captureStream(frameRate);
                 }
                 
                 const recorder = new MediaRecorder(stream, recorderOptions);
@@ -280,17 +284,15 @@ async function compressVideo(file, quality, resolutionScale) {
                 
                 // 录制完成时处理数据
                 recorder.onstop = () => {
-                    // 关键改进：使用更可靠的方式生成包含完整元数据的视频
                     const blob = new Blob(chunks, { 
                         type: recorder.mimeType,
-                        // 添加元数据标志，确保浏览器正确处理
                         lastModified: Date.now()
                     });
                     resolve(blob);
                 };
                 
-                // 开始录制，设置较小的数据块间隔，确保元数据完整
-                recorder.start(500); // 每500ms产生一个数据块，提高元数据完整性
+                // 开始录制，设置较大的数据块间隔，减少移动端内存占用
+                recorder.start(1000); // 每1000ms产生一个数据块
                 
                 // 更新进度条
                 const duration = video.duration;
@@ -301,11 +303,9 @@ async function compressVideo(file, quality, resolutionScale) {
                 // 优化：使用视频的currentTime控制绘制，确保视频完整播放
                 let lastProgressUpdate = 0;
                 let isStopped = false;
-                let isPaused = false;
                 
                 // 计算关键参数
-                const totalFrames = Math.ceil(duration * frameRate);
-                const progressUpdateInterval = 100; // 每100ms更新一次进度条，减少DOM操作
+                const progressUpdateInterval = 200; // 每200ms更新一次进度条，减少DOM操作
                 
                 // 确保视频播放到结束
                 video.addEventListener('ended', () => {
@@ -318,46 +318,16 @@ async function compressVideo(file, quality, resolutionScale) {
                     progressText.textContent = `100%`;
                 });
                 
-                // 监听视频暂停事件，确保视频正常播放
-                video.addEventListener('pause', () => {
-                    console.log('视频暂停，当前进度:', (video.currentTime / duration * 100).toFixed(2) + '%');
-                    if (!isStopped && video.currentTime < duration - 0.5) { // 留有一定缓冲
-                        // 视频意外暂停，尝试继续播放
-                        setTimeout(() => {
-                            if (!isStopped && !isPaused) {
-                                console.log('尝试继续播放视频');
-                                video.play().catch(e => console.error('Failed to continue playback:', e));
-                            }
-                        }, 100);
-                    }
-                });
-                
                 // 添加timeupdate事件监听，实时监控视频播放进度
-                let isPlaying = true;
                 let lastTimeUpdate = 0;
-                let stuckCount = 0;
                 
                 video.addEventListener('timeupdate', () => {
                     lastTimeUpdate = Date.now();
-                    stuckCount = 0;
                     
                     // 检查视频是否已经接近结束
                     if (video.currentTime >= duration - 0.5 && !isStopped) {
                         console.log('视频接近结束，准备停止录制');
-                        // 这里不立即停止，等待ended事件
                     }
-                });
-                
-                // 添加playing事件监听，确保视频正在播放
-                video.addEventListener('playing', () => {
-                    isPlaying = true;
-                    console.log('视频开始播放');
-                });
-                
-                // 添加waiting事件监听，处理视频加载等待
-                video.addEventListener('waiting', () => {
-                    isPlaying = false;
-                    console.log('视频加载中...');
                 });
                 
                 // 检查视频是否卡住
@@ -365,23 +335,16 @@ async function compressVideo(file, quality, resolutionScale) {
                     if (isStopped) return;
                     
                     const now = Date.now();
-                    if (now - lastTimeUpdate > 2000 && isPlaying) { // 超过2秒没有更新，可能卡住
-                        stuckCount++;
-                        console.log('视频可能卡住，尝试恢复播放，卡住次数:', stuckCount);
+                    if (now - lastTimeUpdate > 3000) { // 超过3秒没有更新，可能卡住
+                        console.log('视频可能卡住，尝试恢复播放');
                         
-                        // 尝试恢复播放
-                        if (stuckCount < 5) { // 最多尝试5次
-                            video.play().catch(e => {
-                                console.error('恢复播放失败:', e);
-                                // 如果恢复失败，尝试调整当前时间
-                                if (video.currentTime < duration - 1) {
-                                    console.log('尝试调整视频位置，当前位置:', video.currentTime, '总时长:', duration);
-                                    video.currentTime = Math.min(video.currentTime + 0.5, duration - 1);
-                                }
-                            });
-                        } else {
-                            // 多次尝试失败，强制停止
-                            console.log('多次尝试恢复失败，强制停止');
+                        // 移动端优化：简化恢复逻辑，避免频繁操作
+                        try {
+                            video.currentTime = Math.min(video.currentTime + 1, duration - 1);
+                            video.play().catch(e => console.error('恢复播放失败:', e));
+                        } catch (e) {
+                            console.error('调整视频位置失败:', e);
+                            // 无法恢复，强制完成
                             isStopped = true;
                             recorder.stop();
                             video.pause();
@@ -390,30 +353,35 @@ async function compressVideo(file, quality, resolutionScale) {
                     
                     // 继续检查
                     if (!isStopped) {
-                        setTimeout(checkStuck, 1000);
+                        setTimeout(checkStuck, 2000);
                     }
                 }
                 
                 // 开始检查视频是否卡住
-                setTimeout(checkStuck, 2000);
+                setTimeout(checkStuck, 3000);
                 
-                // 使用requestAnimationFrame进行高效绘制
+                // 移动端优化：简化绘制逻辑，提高性能
                 function drawFrame() {
                     if (isStopped) {
                         return;
                     }
                     
-                    // 绘制当前帧到canvas（使用硬件加速）
-                    ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
-                    
-                    // 减少DOM更新频率，每100ms更新一次进度条
-                    const now = Date.now();
-                    if (now - lastProgressUpdate >= progressUpdateInterval) {
-                        // 更新进度
-                        const progress = Math.min(100, Math.round((video.currentTime / duration) * 100));
-                        progressFill.style.width = `${progress}%`;
-                        progressText.textContent = `${progress}%`;
-                        lastProgressUpdate = now;
+                    try {
+                        // 绘制当前帧到canvas
+                        ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
+                        
+                        // 减少DOM更新频率
+                        const now = Date.now();
+                        if (now - lastProgressUpdate >= progressUpdateInterval) {
+                            // 更新进度
+                            const progress = Math.min(100, Math.round((video.currentTime / duration) * 100));
+                            progressFill.style.width = `${progress}%`;
+                            progressText.textContent = `${progress}%`;
+                            lastProgressUpdate = now;
+                        }
+                    } catch (e) {
+                        console.error('绘制帧失败:', e);
+                        // 绘制失败不影响整体流程，继续下一帧
                     }
                     
                     // 继续下一帧
@@ -429,15 +397,20 @@ async function compressVideo(file, quality, resolutionScale) {
                     console.log('视频播放开始，总时长:', duration);
                 } catch (error) {
                     console.error('视频播放失败:', error);
-                    reject(error);
-                    return;
+                    // 移动端优化：处理自动播放限制，尝试使用静音播放
+                    try {
+                        video.muted = true;
+                        await video.play();
+                        console.log('静音模式下视频播放成功');
+                    } catch (mutedError) {
+                        console.error('静音播放也失败:', mutedError);
+                        reject(new Error('视频播放失败，请确保已授予必要的权限'));
+                        return;
+                    }
                 }
                 
-                // 确保视频播放速度正常
-                video.playbackRate = 1;
-                
                 // 额外的保险措施：设置一个超时，防止无限等待
-                const maxDuration = duration * 2; // 最大允许时间为视频时长的2倍
+                const maxDuration = duration * 3; // 移动端增加超时时间
                 setTimeout(() => {
                     if (!isStopped) {
                         console.log('超时强制停止，当前进度:', (video.currentTime / duration * 100).toFixed(2) + '%');
@@ -470,144 +443,31 @@ function calculateBitrate(quality, width, height, frameRate = 30) {
     return Math.round(baseBitrate * qualityFactor);
 }
 
-// 终极视频修复方案：确保所有播放器都能正常使用进度条
+// 视频修复方案：确保所有播放器都能正常使用进度条
 async function fixSeekableVideo(blob) {
-    // 终极优化：使用更简单、更可靠的方法修复视频元数据
     console.log('Using optimized method to fix video metadata');
     
     try {
-        // 关键改进：直接返回原始blob，但确保设置正确的MIME类型
-        // 视频元数据问题主要出在MediaRecorder生成的视频上，我们需要确保返回的视频格式正确
-        
-        // 获取原始blob的类型
+        // 移动端优化：简化视频修复逻辑，减少性能消耗
         const originalType = blob.type;
         console.log('Original blob type:', originalType);
         
         // 确保返回的视频是MP4格式，这是最广泛支持的格式
         if (originalType.includes('mp4')) {
             // 如果已经是MP4格式，直接返回，但确保设置了正确的类型
-            return new Blob([blob], {
+            return new Blob([blob], { 
                 type: 'video/mp4',
                 lastModified: Date.now()
             });
         } else {
-            // 如果是其他格式，使用MediaRecorder重新编码为MP4格式
-            return await convertToMP4(blob);
+            // 移动端优化：避免复杂的格式转换，直接返回原始视频
+            // 大多数现代移动端浏览器都支持webm格式
+            return blob;
         }
     } catch (error) {
         console.error('Video metadata fix failed:', error);
         return blob;
     }
-}
-
-// 将视频转换为MP4格式的辅助函数
-async function convertToMP4(blob) {
-    console.log('Converting video to MP4 format');
-    
-    // 创建视频元素加载原始视频
-    const videoElement = document.createElement('video');
-    videoElement.src = URL.createObjectURL(blob);
-    videoElement.muted = true;
-    videoElement.playsInline = true;
-    videoElement.preload = 'auto';
-    
-    // 等待视频完全加载（包括元数据）
-    await new Promise((resolve, reject) => {
-        videoElement.onloadedmetadata = resolve;
-        videoElement.onerror = reject;
-    });
-    
-    // 确保视频可以播放
-    await videoElement.play();
-    videoElement.pause();
-    
-    // 创建Canvas用于绘制视频
-    const canvas = document.createElement('canvas');
-    canvas.width = videoElement.videoWidth;
-    canvas.height = videoElement.videoHeight;
-    const ctx = canvas.getContext('2d');
-    
-    // 使用视频原始帧率
-    const frameRate = videoElement.videoFrameRate || 30;
-    const frameInterval = 1000 / frameRate;
-    
-    // 创建MediaRecorder，确保使用MP4格式
-    const stream = canvas.captureStream(frameRate);
-    let mimeType = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2';
-    
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/mp4';
-    }
-    
-    const recorder = new MediaRecorder(stream, {
-        mimeType: mimeType,
-        videoBitsPerSecond: 2000000,
-        audioBitsPerSecond: 128000,
-        frameRate: frameRate
-    });
-    
-    const chunks = [];
-    recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-            chunks.push(e.data);
-        }
-    };
-    
-    const recordingComplete = new Promise(resolve => {
-        recorder.onstop = () => {
-            resolve(new Blob(chunks, { 
-                type: mimeType,
-                lastModified: Date.now()
-            }));
-        };
-    });
-    
-    // 开始录制
-    recorder.start(1000); // 每秒生成一个数据块，确保元数据完整
-    
-    // 播放视频并绘制每一帧，确保生成完整的视频
-    videoElement.play();
-    
-    // 使用requestAnimationFrame进行高效绘制
-    let isRecording = true;
-    let lastFrameTime = 0;
-    
-    const drawFrame = (timestamp) => {
-        if (!isRecording) return;
-        
-        // 确保按照正确的帧率绘制
-        if (timestamp - lastFrameTime >= frameInterval) {
-            // 绘制当前帧
-            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-            lastFrameTime = timestamp;
-        }
-        
-        // 继续绘制，直到视频结束
-        if (!videoElement.paused && !videoElement.ended) {
-            requestAnimationFrame(drawFrame);
-        } else {
-            // 视频结束，停止录制
-            isRecording = false;
-            recorder.stop();
-        }
-    };
-    
-    // 开始绘制
-    requestAnimationFrame(drawFrame);
-    
-    // 等待视频播放结束
-    await new Promise(resolve => {
-        videoElement.onended = resolve;
-    });
-    
-    // 确保录制完成
-    const finalBlob = await recordingComplete;
-    
-    // 清理资源
-    videoElement.pause();
-    URL.revokeObjectURL(videoElement.src);
-    
-    return finalBlob;
 }
 
 // 显示压缩后视频
@@ -655,6 +515,7 @@ async function displayCompressedVideo(blob) {
         compressionRatio.textContent = `${ratio}%`;
         spaceSaved.textContent = formatFileSize(savedSize);
         
+        // 移动端优化：避免自动播放，让用户手动控制
         // 直接播放视频一小段时间，确保浏览器识别视频可拖动
         compressedVideo.play().then(() => {
             // 播放一小段后暂停
@@ -668,8 +529,16 @@ async function displayCompressedVideo(blob) {
                 console.log('视频可拖动范围:', compressedVideo.seekable);
             }, 100);
         }).catch(error => {
-            console.error('视频播放失败:', error);
+            console.error('视频自动播放失败:', error);
+            // 移动端优化：自动播放失败是正常的，不影响使用
         });
+    };
+    
+    // 移动端优化：添加错误处理，确保视频可以正常加载
+    compressedVideo.onerror = (error) => {
+        console.error('压缩视频加载失败:', error);
+        // 显示友好的错误信息
+        alert('视频加载失败，请尝试下载后观看');
     };
     
     // 添加seeking和seeked事件监听，确保进度条拖动正常工作
