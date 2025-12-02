@@ -187,7 +187,7 @@ async function compressVideo(file, quality, resolutionScale) {
         video.src = URL.createObjectURL(file);
         video.playsInline = true;
         video.muted = true; // 静音播放，避免影响用户体验
-        video.preload = 'metadata';
+        video.preload = 'auto'; // 预加载更多数据，确保流畅播放
         
         video.onloadedmetadata = async () => {
             try {
@@ -309,6 +309,7 @@ async function compressVideo(file, quality, resolutionScale) {
                 
                 // 确保视频播放到结束
                 video.addEventListener('ended', () => {
+                    console.log('视频播放结束，停止录制');
                     isStopped = true;
                     recorder.stop();
                     video.pause();
@@ -319,15 +320,82 @@ async function compressVideo(file, quality, resolutionScale) {
                 
                 // 监听视频暂停事件，确保视频正常播放
                 video.addEventListener('pause', () => {
-                    if (!isStopped && video.currentTime < duration) {
+                    console.log('视频暂停，当前进度:', (video.currentTime / duration * 100).toFixed(2) + '%');
+                    if (!isStopped && video.currentTime < duration - 0.5) { // 留有一定缓冲
                         // 视频意外暂停，尝试继续播放
                         setTimeout(() => {
                             if (!isStopped && !isPaused) {
+                                console.log('尝试继续播放视频');
                                 video.play().catch(e => console.error('Failed to continue playback:', e));
                             }
                         }, 100);
                     }
                 });
+                
+                // 添加timeupdate事件监听，实时监控视频播放进度
+                let isPlaying = true;
+                let lastTimeUpdate = 0;
+                let stuckCount = 0;
+                
+                video.addEventListener('timeupdate', () => {
+                    lastTimeUpdate = Date.now();
+                    stuckCount = 0;
+                    
+                    // 检查视频是否已经接近结束
+                    if (video.currentTime >= duration - 0.5 && !isStopped) {
+                        console.log('视频接近结束，准备停止录制');
+                        // 这里不立即停止，等待ended事件
+                    }
+                });
+                
+                // 添加playing事件监听，确保视频正在播放
+                video.addEventListener('playing', () => {
+                    isPlaying = true;
+                    console.log('视频开始播放');
+                });
+                
+                // 添加waiting事件监听，处理视频加载等待
+                video.addEventListener('waiting', () => {
+                    isPlaying = false;
+                    console.log('视频加载中...');
+                });
+                
+                // 检查视频是否卡住
+                function checkStuck() {
+                    if (isStopped) return;
+                    
+                    const now = Date.now();
+                    if (now - lastTimeUpdate > 2000 && isPlaying) { // 超过2秒没有更新，可能卡住
+                        stuckCount++;
+                        console.log('视频可能卡住，尝试恢复播放，卡住次数:', stuckCount);
+                        
+                        // 尝试恢复播放
+                        if (stuckCount < 5) { // 最多尝试5次
+                            video.play().catch(e => {
+                                console.error('恢复播放失败:', e);
+                                // 如果恢复失败，尝试调整当前时间
+                                if (video.currentTime < duration - 1) {
+                                    console.log('尝试调整视频位置，当前位置:', video.currentTime, '总时长:', duration);
+                                    video.currentTime = Math.min(video.currentTime + 0.5, duration - 1);
+                                }
+                            });
+                        } else {
+                            // 多次尝试失败，强制停止
+                            console.log('多次尝试恢复失败，强制停止');
+                            isStopped = true;
+                            recorder.stop();
+                            video.pause();
+                        }
+                    }
+                    
+                    // 继续检查
+                    if (!isStopped) {
+                        setTimeout(checkStuck, 1000);
+                    }
+                }
+                
+                // 开始检查视频是否卡住
+                setTimeout(checkStuck, 2000);
                 
                 // 使用requestAnimationFrame进行高效绘制
                 function drawFrame() {
@@ -355,11 +423,29 @@ async function compressVideo(file, quality, resolutionScale) {
                 // 开始绘制循环
                 requestAnimationFrame(drawFrame);
                 
-                // 开始播放视频
-                video.play();
+                // 确保视频开始播放
+                try {
+                    await video.play();
+                    console.log('视频播放开始，总时长:', duration);
+                } catch (error) {
+                    console.error('视频播放失败:', error);
+                    reject(error);
+                    return;
+                }
                 
                 // 确保视频播放速度正常
                 video.playbackRate = 1;
+                
+                // 额外的保险措施：设置一个超时，防止无限等待
+                const maxDuration = duration * 2; // 最大允许时间为视频时长的2倍
+                setTimeout(() => {
+                    if (!isStopped) {
+                        console.log('超时强制停止，当前进度:', (video.currentTime / duration * 100).toFixed(2) + '%');
+                        isStopped = true;
+                        recorder.stop();
+                        video.pause();
+                    }
+                }, maxDuration * 1000);
                 
             } catch (error) {
                 console.error('压缩过程错误:', error);
