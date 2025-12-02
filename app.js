@@ -469,52 +469,39 @@ async function convertToMP4(blob) {
     // 开始录制
     recorder.start(1000); // 每秒生成一个数据块，确保元数据完整
     
-    // 替代方案：不自动播放视频，而是通过定时器控制绘制，确保帧率准确
+    // 播放视频并绘制每一帧，确保生成完整的视频
+    videoElement.play();
+    
+    // 使用requestAnimationFrame进行高效绘制
     let isRecording = true;
-    let currentTime = 0;
+    let lastFrameTime = 0;
     
-    // 开始录制
-    recorder.start(1000);
-    
-    // 使用定时器控制绘制，确保按照正确的帧率生成视频
-    const drawFrame = async () => {
-        if (!isRecording || currentTime >= videoElement.duration) {
-            isRecording = false;
-            recorder.stop();
-            return;
+    const drawFrame = (timestamp) => {
+        if (!isRecording) return;
+        
+        // 确保按照正确的帧率绘制
+        if (timestamp - lastFrameTime >= frameInterval) {
+            // 绘制当前帧
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            lastFrameTime = timestamp;
         }
         
-        // 设置视频当前时间
-        videoElement.currentTime = currentTime;
-        
-        // 等待视频帧加载完成
-        await new Promise(resolve => {
-            videoElement.onseeked = resolve;
-        });
-        
-        // 绘制当前帧
-        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-        
-        // 增加当前时间，确保按照正确的帧率绘制
-        currentTime += frameInterval / 1000;
-        
-        // 继续绘制下一帧
-        setTimeout(drawFrame, frameInterval);
+        // 继续绘制，直到视频结束
+        if (!videoElement.paused && !videoElement.ended) {
+            requestAnimationFrame(drawFrame);
+        } else {
+            // 视频结束，停止录制
+            isRecording = false;
+            recorder.stop();
+        }
     };
     
     // 开始绘制
-    drawFrame();
+    requestAnimationFrame(drawFrame);
     
-    // 等待录制完成
+    // 等待视频播放结束
     await new Promise(resolve => {
-        const checkRecording = () => {
-            if (!isRecording) {
-                resolve();
-            } else {
-                setTimeout(checkRecording, 100);
-            }
-        };
-        checkRecording();
+        videoElement.onended = resolve;
     });
     
     // 确保录制完成

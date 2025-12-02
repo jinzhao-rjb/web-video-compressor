@@ -1,7 +1,7 @@
 {
-  "name": "web-video-compressor",
+  "name": "webassembly-video-compressor",
   "version": "1.0.0",
-  "description": "A web-based video compression tool using pure browser APIs",
+  "description": "A web-based video compression tool powered by WebAssembly",
   "main": "index.html",
   "scripts": {
     "dev": "vite",
@@ -11,12 +11,17 @@
     "test": "python -m http.server 8000"
   },
   "keywords": [
+    "webassembly",
     "video-compression",
-    "web",
-    "browser"
+    "ffmpeg",
+    "ffmpeg.wasm"
   ],
   "author": "",
   "license": "MIT",
+  "dependencies": {
+    "@ffmpeg/core": "^0.12.2",
+    "@ffmpeg/ffmpeg": "^0.12.6"
+  },
   "devDependencies": {
     "vite": "^7.2.6"
   }
