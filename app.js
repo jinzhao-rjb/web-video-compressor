@@ -39,6 +39,10 @@ function initApp() {
     bindEventListeners();
     // 初始化质量值显示
     updateQualityValue();
+    // 移动端优化：添加触摸支持
+    addTouchSupport();
+    // 移动端优化：检查设备类型
+    checkMobileDevice();
 }
 
 // 绑定事件监听器
@@ -65,6 +69,95 @@ function bindEventListeners() {
 // 更新压缩质量显示
 function updateQualityValue() {
     qualityValue.textContent = `${qualitySlider.value}%`;
+}
+
+// 移动端优化：添加触摸支持
+function addTouchSupport() {
+    // 为上传区域添加触摸事件
+    uploadArea.addEventListener('touchstart', () => {
+        uploadArea.classList.add('dragover');
+    });
+    
+    uploadArea.addEventListener('touchend', () => {
+        uploadArea.classList.remove('dragover');
+    });
+    
+    // 为视频容器添加触摸事件，支持双击全屏
+    const videoContainers = [originalVideoContainer, compressedVideoContainer];
+    videoContainers.forEach(container => {
+        container.addEventListener('dblclick', () => {
+            const video = container.querySelector('video');
+            if (video) {
+                toggleFullscreen(video);
+            }
+        });
+    });
+    
+    // 触摸滑动支持：用于比较视图切换
+    let startX = 0;
+    comparisonContainer.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+    });
+    
+    comparisonContainer.addEventListener('touchend', (e) => {
+        const endX = e.changedTouches[0].clientX;
+        const deltaX = endX - startX;
+        
+        // 滑动距离超过50px才触发切换
+        if (Math.abs(deltaX) > 50) {
+            // 可以在这里添加比较视图切换逻辑
+            console.log('Swipe detected:', deltaX > 0 ? 'right' : 'left');
+        }
+    });
+}
+
+// 移动端优化：检查设备类型
+function checkMobileDevice() {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+        document.body.classList.add('mobile-device');
+        console.log('Mobile device detected, applying mobile optimizations');
+        
+        // 移动端优化：调整视频质量默认值，降低移动端资源消耗
+        qualitySlider.value = Math.min(qualitySlider.value, 80);
+        updateQualityValue();
+        
+        // 移动端优化：添加点击外部关闭视频的功能
+        document.addEventListener('click', (e) => {
+            const videoContainers = [originalVideoContainer, compressedVideoContainer];
+            let clickedInside = false;
+            
+            videoContainers.forEach(container => {
+                if (container.contains(e.target)) {
+                    clickedInside = true;
+                }
+            });
+            
+            if (!clickedInside) {
+                // 可以在这里添加关闭视频的逻辑
+            }
+        });
+    }
+}
+
+// 移动端优化：全屏切换
+function toggleFullscreen(element) {
+    if (!document.fullscreenElement) {
+        element.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+}
+
+// 移动端优化：调整视频大小以适应移动设备
+function resizeVideoForMobile(video) {
+    const isMobile = document.body.classList.contains('mobile-device');
+    if (isMobile && video.videoWidth > 1280) {
+        // 移动端优化：如果视频宽度超过1280px，添加样式类
+        video.classList.add('mobile-video');
+    }
 }
 
 // 处理文件选择
@@ -124,7 +217,15 @@ function displayOriginalVideo(file) {
     
     // 设置视频源
     originalVideo.src = videoURL;
+    originalVideo.crossOrigin = 'anonymous';
+    // 移动端优化：允许视频内联播放
+    originalVideo.playsInline = true;
+    originalVideo.muted = true; // 移动端优化：自动播放需要静音
+    
     compareOriginalVideo.src = videoURL;
+    compareOriginalVideo.crossOrigin = 'anonymous';
+    compareOriginalVideo.playsInline = true;
+    compareOriginalVideo.muted = true;
     
     // 显示视频容器
     originalVideoContainer.classList.remove('hidden');
@@ -137,6 +238,9 @@ function displayOriginalVideo(file) {
         originalFileSize.textContent = formatFileSize(file.size);
         originalDuration.textContent = formatDuration(originalVideo.duration);
         originalResolution.textContent = `${originalVideo.videoWidth} × ${originalVideo.videoHeight}`;
+        
+        // 移动端优化：调整视频大小以适应移动设备
+        resizeVideoForMobile(originalVideo);
     };
 }
 
@@ -209,7 +313,7 @@ async function compressVideo(file, quality, resolutionScale) {
                 const ctx = canvas.getContext('2d');
                 
                 // 使用视频原始帧率，确保视频正常播放
-                const frameRate = video.videoFrameRate || 30;
+                let frameRate = video.videoFrameRate || 30;
                 
                 // 移动端优化：根据设备性能调整帧率
                 if (navigator.userAgent.match(/mobile/i)) {
@@ -482,6 +586,12 @@ async function displayCompressedVideo(blob) {
     compressedVideo.src = videoURL;
     compareCompressedVideo.src = videoURL;
     
+    // 移动端优化：添加playsInline和muted属性，支持内联播放
+    compressedVideo.playsInline = true;
+    compressedVideo.muted = true;
+    compareCompressedVideo.playsInline = true;
+    compareCompressedVideo.muted = true;
+    
     // 确保视频元素添加了controls属性
     compressedVideo.controls = true;
     compareCompressedVideo.controls = true;
@@ -514,6 +624,9 @@ async function displayCompressedVideo(blob) {
         
         compressionRatio.textContent = `${ratio}%`;
         spaceSaved.textContent = formatFileSize(savedSize);
+        
+        // 移动端优化：调整视频大小以适应移动设备
+        resizeVideoForMobile(compressedVideo);
         
         // 移动端优化：避免自动播放，让用户手动控制
         // 直接播放视频一小段时间，确保浏览器识别视频可拖动
