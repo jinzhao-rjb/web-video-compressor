@@ -10,24 +10,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      - name: Debug information
-        run: |
-          echo "Branch: $GITHUB_REF"
-          echo "SHA: $GITHUB_SHA"
-          echo "Workspace: $GITHUB_WORKSPACE"
-          git config --list
-          git status
+      - uses: actions/checkout@v3
       
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: .
           publish_branch: gh-pages
-          full_commit_message: ${{ github.event.head_commit.message }}
-          force_orphan: false
-          enable_jekyll: false
+          force_orphan: true
