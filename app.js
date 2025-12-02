@@ -258,40 +258,40 @@ async function compressVideo(file, quality, resolutionScale) {
                 // 开始录制
                 recorder.start();
                 
-                // 播放视频并在canvas上绘制
-                video.play();
-                
                 // 更新进度条
-                let currentTime = 0;
                 const duration = video.duration;
                 
-                // 优化绘制性能：使用requestAnimationFrame但控制实际绘制的帧
-                const drawFrame = () => {
-                    if (currentTime >= duration) {
-                        // 停止录制和播放
-                        recorder.stop();
-                        video.pause();
-                        return;
+                // 设置视频播放速率为1，确保正常播放
+                video.playbackRate = 1;
+                
+                // 使用ontimeupdate事件在视频实际播放时绘制每一帧
+                // 这样可以确保视频的流畅性和同步性
+                let lastTime = -1;
+                video.ontimeupdate = () => {
+                    const currentTime = video.currentTime;
+                    
+                    // 避免同一帧被绘制多次
+                    if (Math.floor(currentTime / frameInterval) !== Math.floor(lastTime / frameInterval)) {
+                        // 绘制到canvas
+                        ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
+                        lastTime = currentTime;
                     }
-                    
-                    // 设置视频当前时间
-                    video.currentTime = currentTime;
-                    
-                    // 绘制到canvas
-                    ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
                     
                     // 更新进度
                     const progress = Math.min(100, Math.round((currentTime / duration) * 100));
                     progressFill.style.width = `${progress}%`;
                     progressText.textContent = `${progress}%`;
                     
-                    // 继续下一帧
-                    currentTime += frameInterval;
-                    requestAnimationFrame(drawFrame);
+                    // 当视频播放完成时停止录制
+                    if (currentTime >= duration) {
+                        recorder.stop();
+                        video.pause();
+                        video.ontimeupdate = null; // 移除事件监听
+                    }
                 };
                 
-                // 开始绘制帧
-                drawFrame();
+                // 开始播放视频
+                video.play();
                 
             } catch (error) {
                 reject(error);
