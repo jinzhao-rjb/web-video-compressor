@@ -204,9 +204,8 @@ async function compressVideo(file, quality, resolutionScale) {
                 canvas.height = evenHeight;
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 
-                // 移动端优化：降低帧速率到24fps或15fps
-                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                const frameRate = isMobile ? 15 : 24;
+                // 使用视频原始帧率，确保视频正常播放
+                const frameRate = video.videoFrameRate || 30;
                 const frameInterval = 1 / frameRate;
                 
                 // 获取媒体流
