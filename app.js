@@ -298,24 +298,42 @@ async function compressVideo(file, quality, resolutionScale) {
                 // 设置视频播放速率为1，确保正常播放
                 video.playbackRate = 1;
                 
-                // 优化：使用requestAnimationFrame和时间步长控制，提高绘制效率
-                let startTime = Date.now();
+                // 优化：使用视频的currentTime控制绘制，确保视频完整播放
                 let lastProgressUpdate = 0;
                 let isStopped = false;
+                let isPaused = false;
                 
                 // 计算关键参数
                 const totalFrames = Math.ceil(duration * frameRate);
                 const progressUpdateInterval = 100; // 每100ms更新一次进度条，减少DOM操作
+                
+                // 确保视频播放到结束
+                video.addEventListener('ended', () => {
+                    isStopped = true;
+                    recorder.stop();
+                    video.pause();
+                    // 确保最后进度是100%
+                    progressFill.style.width = `100%`;
+                    progressText.textContent = `100%`;
+                });
+                
+                // 监听视频暂停事件，确保视频正常播放
+                video.addEventListener('pause', () => {
+                    if (!isStopped && video.currentTime < duration) {
+                        // 视频意外暂停，尝试继续播放
+                        setTimeout(() => {
+                            if (!isStopped && !isPaused) {
+                                video.play().catch(e => console.error('Failed to continue playback:', e));
+                            }
+                        }, 100);
+                    }
+                });
                 
                 // 使用requestAnimationFrame进行高效绘制
                 function drawFrame() {
                     if (isStopped) {
                         return;
                     }
-                    
-                    // 计算当前应该显示的时间
-                    const elapsed = (Date.now() - startTime) / 1000;
-                    const currentTime = Math.min(elapsed, duration);
                     
                     // 绘制当前帧到canvas（使用硬件加速）
                     ctx.drawImage(video, 0, 0, evenWidth, evenHeight);
@@ -324,21 +342,10 @@ async function compressVideo(file, quality, resolutionScale) {
                     const now = Date.now();
                     if (now - lastProgressUpdate >= progressUpdateInterval) {
                         // 更新进度
-                        const progress = Math.min(100, Math.round((currentTime / duration) * 100));
+                        const progress = Math.min(100, Math.round((video.currentTime / duration) * 100));
                         progressFill.style.width = `${progress}%`;
                         progressText.textContent = `${progress}%`;
                         lastProgressUpdate = now;
-                    }
-                    
-                    // 检查是否需要停止录制
-                    if (currentTime >= duration) {
-                        isStopped = true;
-                        recorder.stop();
-                        video.pause();
-                        // 确保最后进度是100%
-                        progressFill.style.width = `100%`;
-                        progressText.textContent = `100%`;
-                        return;
                     }
                     
                     // 继续下一帧
@@ -350,6 +357,9 @@ async function compressVideo(file, quality, resolutionScale) {
                 
                 // 开始播放视频
                 video.play();
+                
+                // 确保视频播放速度正常
+                video.playbackRate = 1;
                 
             } catch (error) {
                 console.error('压缩过程错误:', error);
