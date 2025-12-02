@@ -185,8 +185,8 @@ async function compressVideo(file, quality, resolutionScale) {
     return new Promise((resolve, reject) => {
         const video = document.createElement('video');
         video.src = URL.createObjectURL(file);
-        video.muted = true;
         video.playsInline = true;
+        // 不要设置muted=true，否则可能影响音频流获取
         
         video.onloadedmetadata = async () => {
             try {
@@ -208,24 +208,29 @@ async function compressVideo(file, quality, resolutionScale) {
                 const frameRate = video.videoFrameRate || 30;
                 const frameInterval = 1 / frameRate;
                 
-                // 获取媒体流（仅视频）
-                const videoStream = canvas.captureStream(frameRate);
-                
-                // 播放视频以获取音频流
-                await video.play();
-                // 获取原始视频的音频流
-                const audioStream = video.captureStream().getAudioTracks()[0];
-                
                 // 创建新的媒体流，包含视频和音频
                 const stream = new MediaStream();
+                
+                // 获取原始视频的媒体流（包含音频和视频）
+                await video.play();
+                const originalStream = video.captureStream();
+                
+                // 获取原始视频的音频流
+                const audioTracks = originalStream.getAudioTracks();
+                // 添加所有音频轨道
+                audioTracks.forEach(track => {
+                    stream.addTrack(track);
+                });
+                
+                // 获取canvas的视频流
+                const videoStream = canvas.captureStream(frameRate);
                 // 添加视频轨道
                 videoStream.getVideoTracks().forEach(track => {
                     stream.addTrack(track);
                 });
-                // 添加音频轨道（如果有）
-                if (audioStream) {
-                    stream.addTrack(audioStream);
-                }
+                
+                // 记录音频轨道数量，用于调试
+                console.log(`检测到 ${audioTracks.length} 个音频轨道`);
                 
                 // 设置视频质量和编码格式，优先选择H.264（更适合移动端）
                 let mimeType = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2'; // H.264 + AAC
